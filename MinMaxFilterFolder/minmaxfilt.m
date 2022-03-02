@@ -62,7 +62,9 @@ if nargin<3 || isempty(outtype)
 end
 outtype = lower(strtrim(outtype));
 % Check if OUTTYPE is correct
-if isempty(strmatch(outtype,{'both' 'minmax' 'maxmin' 'min' 'max'}))
+
+% Check if OUTTYPE is correct
+if ~any(strcmp(outtype,{'both' 'minmax' 'maxmin' 'min' 'max'}))
     error('MINMAXFILT: unknown outtype %s', outtype);
 end
 
@@ -72,7 +74,7 @@ if nargin<4 || isempty(shape)
 end
 shape = lower(strtrim(shape));
 % Check if SHAPE is correct
-shapeloc = strmatch(shape,{'valid' 'same' 'full'});
+shapeloc = find(strcmp(shape,{'valid' 'same' 'full'}));
 if isempty(shapeloc)
     error('MINMAXFILT: unknown shape %s', shape);
 end
@@ -114,7 +116,7 @@ if ~strcmp(outtype,'max')
         win = window(dim);
         % call mex engine
         if win~=1
-            [minval minidx] = lemire_nd_minengine(minval, minidx, win, shapeloc);
+            [minval, minidx] = lemire_nd_minengine(minval, minidx, win, shapeloc);
         end
         % Blow back to n-dimensional
         sz(dim) = size(minval,2);
@@ -145,7 +147,7 @@ if ~strcmp(outtype,'min')
         win = window(dim);
         % call mex engine
         if win~=1
-            [maxval maxidx] = lemire_nd_maxengine(maxval, maxidx, win, shapeloc);
+            [maxval, maxidx] = lemire_nd_maxengine(maxval, maxidx, win, shapeloc);
         end
         % Blow back to n-dimensional
         sz(dim) = size(maxval,2);       

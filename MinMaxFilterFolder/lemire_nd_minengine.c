@@ -38,9 +38,10 @@
  * Number 4, pages 328-339, 2006.
  *
  * Compilation:
- *  >> mex -O -v lemire_nd_minengine.c 
- * % add -largeArrayDims on 64-bit computer
- *  >> mex -largeArrayDims -O -v lemire_nd_minengine.c
+ *  MSVS C Compiler
+ *  >> mex -O -R2018a COMPFLAGS="$COMPFLAGS /openmp" lemire_nd_minengine.c
+ *  Intel compiler
+ *  >> mex -O -R2018a COMPFLAGS="$COMPFLAGS /MD /Qopenmp" lemire_nd_minengine.c
  *
  * see aldo: lemire_nd_maxengine.c, minmaxfilter
  *           median filter, Kramer & Bruckner filter
@@ -62,6 +63,10 @@
  * #define mwSize int
  * #define size_t int
  */
+
+ /* Set to 1 to Enable OPENMP
+    to 0 to disable it */
+#define OPENMP_FLAG		1
 
 /* Define correct type depending on platform 
   You might have to modify here depending on your compiler */
@@ -93,66 +98,75 @@ typedef unsigned char uint08;
  *       k -> first dimension
  *       i -> second (working) dimension */
 #define SCAN(a, minval, type) { \
-for (j=0; j<q; j++) { \
-    a = (type*)adata + j*stepA; \
-    idx = idxdata + j*stepA; \
-    minval = (type*)valdata + j*stepMinMax; \
-    minidx = minidxdata + j*stepMinMax; \
-    for (k=0; k<p; k++) { \
-        nWedge = 0; \
-        Wedgefirst = 0; \
-        Wedgelast = -1; \
-        left = -(int)(window); \
-        pleft = 0; \
-        for (i=1; i<n; i++) { \
-            left++; \
-            if (left >= lstart) { \
-                linidx = p*(nWedge? Wedge[Wedgefirst] : i-1); \
+__pragma(omp parallel for default(none) private(i, j, k) \
+    private(a, idx, minval, minidx, Wedge) \
+    private(nWedge, Wedgefirst, Wedgelast, left, pleft) \
+    private(linidx) \
+    schedule(static) \
+    shared(adata, valdata, stepA, stepMinMax, idxdata, minidxdata, lstart, \
+           p, q, n, size, imax, WedgeBuffer, window)) \
+    for (j=0; j<q; j++) { \
+        a = (type*)adata + j*stepA; \
+        idx = idxdata + j*stepA; \
+        minval = (type*)valdata + j*stepMinMax; \
+        minidx = minidxdata + j*stepMinMax; \
+        Wedge = WedgeBuffer + j*size; \
+        for (k=0; k<p; k++) { \
+            nWedge = 0; \
+            Wedgefirst = 0; \
+            Wedgelast = -1; \
+            left = -(int)(window); \
+            pleft = 0; \
+            for (i=1; i<n; i++) { \
+                left++; \
+                if (left >= lstart) { \
+                    linidx = p*(nWedge? Wedge[Wedgefirst] : i-1); \
+                    minidx[pleft] = idx[linidx]; \
+                    minval[pleft] = a[linidx]; \
+                    pleft += p; \
+                } \
+                if (a[p*i] < a[p*(i-1)]) { \
+                    while (nWedge) { \
+                        if (a[p*i] >= a[p*Wedge[Wedgelast]]) { \
+                            if (left == Wedge[Wedgefirst]) { \
+                                nWedge--; \
+                                if ((++Wedgefirst) == size) Wedgefirst = 0; \
+                            } \
+                            break; \
+                        } \
+                        nWedge--; \
+                        if ((--Wedgelast) < 0) Wedgelast += size; \
+                    } \
+                } \
+                else { \
+                    nWedge++; \
+                    if ((++Wedgelast) == size) Wedgelast = 0; \
+                    Wedge[Wedgelast] = i-1; \
+                    if (left == Wedge[Wedgefirst]) { \
+                        nWedge--; \
+                        if ((++Wedgefirst) == size) Wedgefirst = 0; \
+                    } \
+                } \
+            } \
+            for (i=n; i<=imax; i++) { \
+                left++; \
+                linidx = p*(nWedge? Wedge[Wedgefirst] : n-1); \
                 minidx[pleft] = idx[linidx]; \
                 minval[pleft] = a[linidx]; \
                 pleft += p; \
-            } \
-            if (a[p*i] < a[p*(i-1)]) { \
-                while (nWedge) { \
-                    if (a[p*i] >= a[p*Wedge[Wedgelast]]) { \
-                        if (left == Wedge[Wedgefirst]) { \
-                            nWedge--; \
-                            if ((++Wedgefirst) == size) Wedgefirst = 0; \
-                        } \
-                        break; \
-                    } \
-                    nWedge--; \
-                    if ((--Wedgelast) < 0) Wedgelast += size; \
-                } \
-            } \
-            else { \
                 nWedge++; \
                 if ((++Wedgelast) == size) Wedgelast = 0; \
-                Wedge[Wedgelast] = i-1; \
+                Wedge[Wedgelast] = n-1; \
                 if (left == Wedge[Wedgefirst]) { \
                     nWedge--; \
                     if ((++Wedgefirst) == size) Wedgefirst = 0; \
                 } \
             } \
+            a++; idx++; \
+            minval++; minidx++; \
         } \
-        for (i=n; i<=imax; i++) { \
-            left++; \
-            linidx = p*(nWedge? Wedge[Wedgefirst] : n-1); \
-            minidx[pleft] = idx[linidx]; \
-            minval[pleft] = a[linidx]; \
-            pleft += p; \
-            nWedge++; \
-            if ((++Wedgelast) == size) Wedgelast = 0; \
-            Wedge[Wedgelast] = n-1; \
-            if (left == Wedge[Wedgefirst]) { \
-                nWedge--; \
-                if ((++Wedgefirst) == size) Wedgefirst = 0; \
-            } \
-        } \
-        a++; idx++; \
-        minval++; minidx++; \
     } \
-} }
+}
 /* end SCAN */
 
 #define VALID_SHAPE 1
@@ -190,7 +204,7 @@ void mexFunction(int nlhs, mxArray *plhs[],
     mwSize i, pleft, n, window;
     mwSize imax, margin, linidx;
     int left, lstart, size;
-    mwSize *Wedge; /* wedge */
+    mwSize *Wedge, *WedgeBuffer; /* wedge */
     int nWedge; /* wedge number of elements (0 is empty wedge) */
     int Wedgefirst, Wedgelast; /* Indices of two ends of the wedge */
     int shape;
@@ -235,7 +249,7 @@ void mexFunction(int nlhs, mxArray *plhs[],
         mexErrMsgTxt("LEMIRE_ND_MINENGINE: Second input WINDOW must be double.");
     
     /* Get the window size, cast it in mwSize */
-    window = (mwSize)(*mxGetPr(WINDOW));
+    window = (mwSize)(mxGetScalar(WINDOW));
     margin = window-1;
     
     if (window<1) /* Check if it's valid */
@@ -245,8 +259,8 @@ void mexFunction(int nlhs, mxArray *plhs[],
     
     /* Allocate wedges buffers for L and U, each is size (window+1) */
     size = (int)(window+1);
-    Wedge = mxMalloc(size*sizeof(mwSize));
-    if (Wedge==NULL) mexErrMsgTxt("LEMIRE_ND_MINENGINE: out of memory.");
+    WedgeBuffer = mxMalloc(size * q * sizeof(mwSize));
+    if (WedgeBuffer ==NULL) mexErrMsgTxt("LEMIRE_ND_MINENGINE: out of memory.");
     
     /* This parameters configure for three cases:
      * - full scan (minimum 1-element intersecting with window), or
@@ -280,11 +294,79 @@ void mexFunction(int nlhs, mxArray *plhs[],
     stepA = p*n; /* for A */
     stepMinMax = p*dimOut[1]; /* step for output */
     
-    /* Get data pointers */
-    adata = mxGetData(A);
-    idxdata = mxGetPr(IDX); 
-    valdata = mxGetData(MINVAL);
-    minidxdata = mxGetPr(MINIDX);
+     /* Get data pointers */
+#if MX_HAS_INTERLEAVED_COMPLEX
+    idxdata     = mxGetDoubles(IDX); 
+    minidxdata  = mxGetDoubles(MINIDX);
+    switch (ClassID) {
+        case mxDOUBLE_CLASS:
+             adata       = mxGetDoubles(A);
+             valdata     = mxGetDoubles(MINVAL);
+             SCAN(adouble, valdouble, double);
+             break;
+        case mxSINGLE_CLASS:
+             adata       = mxGetSingles(A);
+             valdata     = mxGetSingles(MINVAL);
+             SCAN(asingle, valsingle, float);
+             break;
+        case mxINT64_CLASS:
+             adata       = mxGetInt64s(A);
+             valdata     = mxGetInt64s(MINVAL);
+             SCAN(aint64, valint64, int64);
+             break;
+        case mxUINT64_CLASS:
+             adata       = mxGetUint64s(A);
+             valdata     = mxGetUint64s(MINVAL);
+             SCAN(auint64, valuint64, uint64);
+             break;
+        case mxINT32_CLASS:
+             adata       = mxGetInt32s(A);
+             valdata     = mxGetInt32s(MINVAL);
+             SCAN(aint32, valint32, int32);
+             break;
+        case mxUINT32_CLASS:
+             adata       = mxGetUint32s(A);
+             valdata     = mxGetUint32s(MINVAL);
+             SCAN(auint32, valuint32, uint32);
+             break;
+        case mxCHAR_CLASS:
+             adata       = mxGetUint16s(A);
+             valdata     = mxGetUint16s(MINVAL);
+             SCAN(auint16, valuint16, uint16);
+             break;
+        case mxINT16_CLASS:
+             adata       = mxGetInt16s(A);
+             valdata     = mxGetInt16s(MINVAL);
+             SCAN(aint16, valint16, int16);
+             break;
+        case mxUINT16_CLASS:
+             adata       = mxGetUint16s(A);
+             valdata     = mxGetUint16s(MINVAL);
+             SCAN(auint16, valuint16, uint16);
+             break;
+        case mxLOGICAL_CLASS:
+             adata       = mxGetUint8s(A);
+             valdata     = mxGetUint8s(MINVAL);
+             SCAN(auint08, valuint08, uint08);
+             break;
+        case mxINT8_CLASS:
+             adata       = mxGetInt8s(A);
+             valdata     = mxGetInt8s(MINVAL);
+             SCAN(aint08, valint08, int08);
+             break;
+        case mxUINT8_CLASS:
+             adata       = mxGetUint8s(A);
+             valdata     = mxGetUint8s(MINVAL);
+             SCAN(auint08, valuint08, uint08);
+             break;
+        default:
+            mexErrMsgTxt("LEMIRE_ND_MINENGINE: Class not supported.");
+    } /* switch */
+#else  
+    idxdata     = mxGetPr(IDX); 
+    minidxdata  = mxGetPr(MINIDX);       
+    adata       = mxGetData(A);
+    valdata     = mxGetData(MINVAL);    
         
     /* Call the engine depending on ClassID */
     switch (ClassID) {
@@ -327,9 +409,10 @@ void mexFunction(int nlhs, mxArray *plhs[],
         default:
             mexErrMsgTxt("LEMIRE_ND_MINENGINE: Class not supported.");
     } /* switch */
+#endif
     
     /* Free the buffer */
-    mxFree(Wedge);
+    mxFree(WedgeBuffer);
     
     return;
     

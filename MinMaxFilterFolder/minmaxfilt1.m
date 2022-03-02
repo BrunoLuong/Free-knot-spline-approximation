@@ -57,7 +57,7 @@ if nargin<3 || isempty(outtype)
 end
 outtype = lower(strtrim(outtype));
 % Check if OUTTYPE is correct
-if isempty(strmatch(outtype,{'both' 'minmax' 'maxmin' 'min' 'max'}))
+if ~any(strcmp(outtype,{'both' 'minmax' 'maxmin' 'min' 'max'}))
     error('MINMAXFILT1: unknown outtype %s', outtype);
 end
 
@@ -67,7 +67,7 @@ if nargin<4 || isempty(shape)
 end
 shape = lower(strtrim(shape));
 % Check if SHAPE is correct
-shapeloc = strmatch(shape,{'valid' 'same' 'full'});
+shapeloc = find(strcmp(shape,{'valid' 'same' 'full'}));
 if isempty(shapeloc)
     error('MINMAXFILT1: unknown shape %s', shape);
 end
@@ -87,7 +87,7 @@ if ~strcmp(outtype,'max')
     % Index array, they must be double
     minidx = 1:double(n);
     % Call MEX engines
-    [minval minidx] = lemire_nd_minengine(A, minidx, window, shapeloc);
+    [minval, minidx] = lemire_nd_minengine(A, minidx, window, shapeloc);
     % reshape in row
     if ~isrow
         minval = minval(:);
@@ -103,7 +103,7 @@ if ~strcmp(outtype,'min')
     % Index array, they must be double
     maxidx = 1:double(n);
     % Call MEX engines
-    [maxval maxidx] = lemire_nd_maxengine(A, maxidx, window, shapeloc);
+    [maxval, maxidx] = lemire_nd_maxengine(A, maxidx, window, shapeloc);
     % reshape in row
     if ~isrow
         maxval = maxval(:);

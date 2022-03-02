@@ -26,6 +26,7 @@
  * Number 4, pages 328-339, 2006.
  *
  * Compilation:
+ * *>> mex -O -R2018a lemire_engine.c % add -largeArrayDims on 64-bit computer
  *  >> mex -O -v lemire_engine.c % add -largeArrayDims on 64-bit computer
  *
  * see aldo: median filter, Kramer & Bruckner filter
@@ -72,10 +73,10 @@ typedef unsigned char uint08;
 #define MAXINT 0x7fffffff
 
 /* This is the engine macro, used for different data type */
-#define ENGINE(a, minval, maxval, type) { \
-    a = (type*)mxGetData(A); \
-    minval = (type*)mxGetData(MINVAL); \
-    maxval = (type*)mxGetData(MAXVAL); \
+#define ENGINE(a, minval, maxval, type, mxgetfun) { \
+    a = (type*)mxgetfun(A); \
+    minval = (type*)mxgetfun(MINVAL); \
+    maxval = (type*)mxgetfun(MAXVAL); \
     for (i=1; i<n; i++) { \
         left = (int)(i-window); \
         if (left >= 0) { \
@@ -179,7 +180,7 @@ void mexFunction(int nlhs, mxArray *plhs[],
         mexErrMsgTxt("LEMIRE_ENGINE: Second input WINDOW must be double.");
     
     /* Get the window size, cast it in mwSize */
-    window = (mwSize)(*mxGetPr(WINDOW));
+    window = (mwSize)(mxGetScalar(WINDOW));
     
     if (window<1) /* Check if it's valid */
         mexErrMsgTxt("LEMIRE_ENGINE: windows must be 1 or greater.");   
@@ -215,46 +216,89 @@ void mexFunction(int nlhs, mxArray *plhs[],
     Llast = Ulast = -1;
     
     /* Call the engine depending on ClassID */
+#if MX_HAS_INTERLEAVED_COMPLEX    
     switch (ClassID) {
         case mxDOUBLE_CLASS:
-             ENGINE(adouble, minvaldouble, maxvaldouble, double);
+             ENGINE(adouble, minvaldouble, maxvaldouble, double, mxGetDoubles);
              break;
         case mxSINGLE_CLASS:
-             ENGINE(asingle, minvalsingle, maxvalsingle, float);
+             ENGINE(asingle, minvalsingle, maxvalsingle, float, mxGetSingles);
              break;
         case mxINT64_CLASS:
-             ENGINE(aint64, minvalint64, maxvalint64, int64);
+             ENGINE(aint64, minvalint64, maxvalint64, int64, mxGetInt64s);
              break;
         case mxUINT64_CLASS:
-             ENGINE(auint64, minvaluint64, maxvaluint64, uint64);
+             ENGINE(auint64, minvaluint64, maxvaluint64, uint64, mxGetUint64s);
              break;
         case mxINT32_CLASS:
-             ENGINE(aint32, minvalint32, maxvalint32, int32);
+             ENGINE(aint32, minvalint32, maxvalint32, int32, mxGetInt32s);
              break;
         case mxUINT32_CLASS:
-             ENGINE(auint32, minvaluint32, maxvaluint32, uint32);
+             ENGINE(auint32, minvaluint32, maxvaluint32, uint32, mxGetUint32s);
              break;
         case mxCHAR_CLASS:
-             ENGINE(auint16, minvaluint16, maxvaluint16, uint16);
+             ENGINE(auint16, minvaluint16, maxvaluint16, uint16, mxGetUint16s);
              break;
         case mxINT16_CLASS:
-             ENGINE(aint16, minvalint16, maxvalint16, int16);
+             ENGINE(aint16, minvalint16, maxvalint16, int16, mxGetInt16s);
              break;
         case mxUINT16_CLASS:
-             ENGINE(auint16, minvaluint16, maxvaluint16, uint16);
+             ENGINE(auint16, minvaluint16, maxvaluint16, uint16, mxGetUint16s);
              break;
         case mxLOGICAL_CLASS:
-             ENGINE(auint08, minvaluint08, maxvaluint08, uint08);
+             ENGINE(auint08, minvaluint08, maxvaluint08, uint08, mxGetUint8s);
              break;
         case mxINT8_CLASS:
-             ENGINE(aint08, minvalint08, maxvalint08, int08);
+             ENGINE(aint08, minvalint08, maxvalint08, int08, mxGetInt8s);
              break;
         case mxUINT8_CLASS:
-             ENGINE(auint08, minvaluint08, maxvaluint08, uint08);
+             ENGINE(auint08, minvaluint08, maxvaluint08, uint08, mxGetUint8s);
              break;
         default:
             mexErrMsgTxt("LEMIRE_ENGINE: Class not supported.");
     } /* switch */
+#else
+    switch (ClassID) {
+        case mxDOUBLE_CLASS:
+            ENGINE(adouble, minvaldouble, maxvaldouble, double, mxGetData);
+            break;
+        case mxSINGLE_CLASS:
+            ENGINE(asingle, minvalsingle, maxvalsingle, float, mxGetData);
+            break;
+        case mxINT64_CLASS:
+            ENGINE(aint64, minvalint64, maxvalint64, int64, mxGetData);
+            break;
+        case mxUINT64_CLASS:
+            ENGINE(auint64, minvaluint64, maxvaluint64, uint64, mxGetData);
+            break;
+        case mxINT32_CLASS:
+            ENGINE(aint32, minvalint32, maxvalint32, int32, mxGetData);
+            break;
+        case mxUINT32_CLASS:
+            ENGINE(auint32, minvaluint32, maxvaluint32, uint32, mxGetData);
+            break;
+        case mxCHAR_CLASS:
+            ENGINE(auint16, minvaluint16, maxvaluint16, uint16, mxGetData);
+            break;
+        case mxINT16_CLASS:
+            ENGINE(aint16, minvalint16, maxvalint16, int16, mxGetData);
+            break;
+        case mxUINT16_CLASS:
+            ENGINE(auint16, minvaluint16, maxvaluint16, uint16, mxGetData);
+            break;
+        case mxLOGICAL_CLASS:
+            ENGINE(auint08, minvaluint08, maxvaluint08, uint08, mxGetData);
+            break;
+        case mxINT8_CLASS:
+            ENGINE(aint08, minvalint08, maxvalint08, int08, mxGetData);
+            break;
+        case mxUINT8_CLASS:
+            ENGINE(auint08, minvaluint08, maxvaluint08, uint08, mxGetData);
+            break;
+        default:
+            mexErrMsgTxt("LEMIRE_ENGINE: Class not supported.");
+    } /* switch */
+#endif
     
     /* Free the buffer */
     mxFree(L);
