@@ -17,10 +17,11 @@ function [B, dB, dalpha] = BernKnotDeriv(x, knots, j, k, dknots, alpha, lambda, 
 %      k==1 -> piecewise constant
 %      k==2 -> linear
 %      k==4 -> cubic
-%   dknots: increment of knots, each column is the direction where the
-%          derivative is computed. In order to compute the Jacobian
-%          user must provide a basis vectors for DKNOT 
-%   alpha: vectors of size n:=length(t)-k, optional coefficients of the
+%   dknots: increment of knots, column vector or 
+%       array, each column is the direction where the derivative is computed.
+%       In order to compute the Jacobian user must provide a basis vectors
+%       for DKNOTS
+%   alpha: vectors of size n:=length(knots)-k, optional coefficients of the
 %          spline basis
 %   lambda: dual variable, same number of elements as x
 %
@@ -34,7 +35,7 @@ function [B, dB, dalpha] = BernKnotDeriv(x, knots, j, k, dknots, alpha, lambda, 
 %   dalpha: left product the derivative dB (of B) with the dual lambda,
 %           dimension (n x p)
 %
-%   If t is not monotonically non-decreasing, output will be an empty arrays
+%   If knots is not monotonically non-decreasing, output will be an empty arrays
 %
 %   Note: B_j,k has support on [knots(j),knots(j+k)[
 %
@@ -45,6 +46,8 @@ function [B, dB, dalpha] = BernKnotDeriv(x, knots, j, k, dknots, alpha, lambda, 
 %
 % Author: Bruno Luong
 %   31-May-2010: correct bug for LEFT Bspline is called with scalar
+%   16-Mar-2023: De Boor algorithm, recusrsion on unnormalized B-spline
+%       basis function
 
 % Check if the coefficients are provided by user
 coefin = nargin>=6 && ~isempty(alpha);
@@ -64,7 +67,8 @@ if isvector(x) %&& ~coefin
 else
     szx = size(x);
 end
-x = x(:);
+% sort x so that it fall into subinterval by contiguous segment
+[x, isx] = sort(reshape(x, [], 1));
 m = size(x,1);
 
 %%
@@ -109,16 +113,16 @@ if k<=0
     return
 end
 
-%%
+%% unnormalized B-Spline basis
 % k=1: step functions (piecwise constant)
-
-B = zeros(m,jmax+k-jmin,cls);
+n = jmax+k-jmin;
+M = zeros([m, n], cls);
 
 if nargin>=8 && leftflag
     % Left B-spline
     tt = knots(jmax+k:-1:jmin);
     if issorted(-tt)
-        [trash, col] = histc(-x,-tt); %#ok
+        [~, col] = histc(-x,-tt); %#ok
         col = length(tt)-col; % Correct BUG, 31/05/2010
     else
         B = [];
@@ -129,7 +133,7 @@ else
     % Default, right B-spline
     tt = knots(jmin:jmax+k);
     if issorted(tt)
-        [trash, col] = histc(x,tt); %#ok
+        [~, col] = histc(x,tt); %#ok
     else
         B = [];
         dB = [];
@@ -137,61 +141,86 @@ else
     end
 end
 
-row = find(col>=1 & col<=size(B,2));
-col = col(row);
-%B(sub2ind(size(B),row,col)) = 1;
-B(row+(col-1)*m) = 1;
+inside = col>=1 & col<=size(M,2);
+i = col; % interval index, same size as x
+row = find(inside);
+col = i(inside); % also i(row)
 
-% Derivative vanishes for k==0
-dB = zeros([size(B) p],cls);
+if k >= 2 && m % i must not be empty, required by GetBreaksArray
 
-% dB has three dimensions: 
-% - first -> abscissa (x)
-% - second -> basis (j)
-% - third -> knot derivative
+    % Construct the array of break indices of sorted x array
+    breaks = GetBreaksArray(i, jmax+k);
 
-%%
-%bsxops(1);
-for kk=2:k
-    % recursion
-    for jj=jmin:jmax+k-kk
-        dt = knots(jj+kk-1)-knots(jj); % scalar  
-        if dt~=0
-            dkleft = dknots(1,jj,:);
-            ddt = dknots(1,jj+kk-1,:)-dkleft; % (1 x 1 x p)
-            w1 = (x-knots(jj)) / dt; % (m x 1 x 1)
-            % dw1 = (-dknots(1,jj,:) - ddt.*w1) / dt;  % (m x 1 x p)
-            dw1 = bsxfun(@times, ddt, w1);
-            dw1 = bsxfun(@minus, -dkleft, dw1) / dt;
-        else
-            w1 = zeros(size(x),cls);
-            dw1 = zeros([size(w1) p],cls);
+    %  eqt (5), Carl de Boor "On Calculating with B-spline" 1972 paper
+    dt = knots(col+1)-knots(col);
+    idt = 1 ./ dt;
+    idt(dt == 0) = 0;
+    M(row+(col-1)*m) = idt;
+
+    % dM has three dimensions:
+        % - first -> abscissa (x), m
+        % - second -> basis (j), n
+        % - third -> knot derivative, p
+    %dM = zeros([size(M) p],cls);
+    % Derivative k==0
+    ddt = dknots(1,col+1,:)-dknots(1,col,:);   % (1 x m x p)
+    ddt = reshape(ddt, [m,1,p]);               % (m x 1 x p)
+    ddt(dt == 0,:,:) = 0;
+    dM = zeros([size(M)],cls);
+    dM(row+(col-1)*m) = idt.*idt;               % (m x n) 
+    dM = -ddt.*dM;                              % (m x n x p)
+
+    %%
+    for kk=2:k
+        % sub-interval to be processed
+        jv = jmin:jmax+k-kk;
+        % support lengths
+        dtv = knots(jv+kk)-knots(jv);
+        % recursion loop on sub-intervals
+        for c=1:size(jv,2)
+            dt = dtv(c);
+            if dt~=0
+                jj = jv(c);
+                % which points x fall inside the support
+                r = breaks(jj):breaks(jj+kk)-1; % length mr
+                dkleft = dknots(1,jj,:);
+                dkright = dknots(1,jj+kk,:);
+                ddt = dkright-dkleft;           % ( 1 x 1 x p)
+                w = (x(r)-knots(jj)) / dt;      % (mr x 1 x 1)
+                dw = -(dkleft + ddt.*w) / dt;   % (mr x 1 x p)
+                % eqt (8), Carl de Boor "On Calculating with B-spline" 1972 paper
+                Mij = M(r,c);
+                Mijp1 = M(r,c+1);
+                M(r,c) = w.*Mij + (1-w).*Mijp1;
+                dM(r,c,:) = dw.*(Mij - Mijp1) + (w.*dM(r,c,:) + (1-w).*dM(r,c+1,:));
+            end
         end
-        dt = knots(jj+kk)-knots(jj+1);        
-        if dt~=0
-            dkright = dknots(1,jj+kk,:);
-            ddt = dkright-dknots(1,jj+1,:); % (1 x 1 x p)
-            w2 = (knots(jj+kk)-x) / dt; % (m x 1 x 1)
-            %dw2 = (dknots(1,jj+kk,:) - ddt.*w2) / dt; % (m x 1 x p)
-            dw2 = bsxfun(@times, ddt, w2);
-            dw2 = bsxfun(@minus, dkright, dw2) / dt;
-        else
-            w2 = zeros(size(x),cls);
-            dw2 = zeros([size(w2) p],cls);
-        end
-        ij = jj-jmin+1;
-%         dB(:,ij,:) = dw1.*B(:,ij) + w1.*dB(:,ij,:) + ...
-%                      dw2.*B(:,ij+1) + w2.*dB(:,ij+1,:);
-        Bij = B(:,ij);
-        Bijp1 = B(:,ij+1);
-        dB(:,ij,:) = (bsxfun(@times, dw1, Bij) + ...
-                      bsxfun(@times, dw2, Bijp1)) + ...
-                     (bsxfun(@times, w1, dB(:,ij,:)) + ...
-                      bsxfun(@times, w2, dB(:,ij+1,:))) ;
-        B(:,ij) = w1.*Bij + w2.*Bijp1;
     end
+
+    % Normalized B-Spline basis,
+    % B here is noted by N in Carl de Boor "On Calculating with B-spline" 1972 paper
+    % definition (4)
+    % Loop on sub-intervals
+    B = zeros(size(M), cls);
+    dB = zeros(size(dM), cls);
+    jv = jmin:jmax;
+    dtv = knots(jv+k)-knots(jv);
+    for c=1:size(jv,2)
+        dt = dtv(c);
+        if dt~=0
+            jj = jv(c);
+            % which points x fall inside the support
+            r = breaks(jj):breaks(jj+k)-1;
+            B(r,c) = M(r,c)*dt;
+            ddt = dknots(1,jj+k,:)-dknots(1,jj,:);   % (1 x 1 x p)
+            dB(r,c,:) = dM(r,c,:)*dt + M(r,c).*ddt;
+        end
+    end
+else
+    B = zeros(size(M), cls);
+    B(row+(col-1)*m) = 1;
+    dB = zeros([size(B) p], cls);
 end
-%bsxops(0);
 
 %%
 % Map to original vector j
@@ -200,6 +229,12 @@ if length(j) ~= size(B,2)
     loc = ismembc2(j, jmin:jmax);
     B = B(:,loc);
     dB = dB(:,loc,:);
+end
+
+%% Restore the order of original x
+if ~isequal(isx, (1:size(B,1)).')
+    B = B(isx,:,:);
+    dB = dB(isx,:,:);
 end
 
 % Basis
@@ -212,7 +247,8 @@ if coefin
     alpha = alpha(:);
     
     B = reshape(B,[],n);
-    B = B*alpha;
+    % Compute function from the coefficients
+    B = multMat(B, alpha); % Bug fix 10-Jun-2010
     B = reshape(B, [szx size(alpha,2)]);
 
     if nargin>=7 % && nargout>=3 % lambda is provided
@@ -227,7 +263,7 @@ if coefin
     ip = 1:max(ndims(dB),d);
     ip([d end]) = ip([end d]);
     dB = reshape(permute(dB, ip), [], length(alpha));
-    dB = dB*alpha;
+    dB = multMat(dB, alpha);
     dB = reshape(dB, [szx p]);    
 
 end
