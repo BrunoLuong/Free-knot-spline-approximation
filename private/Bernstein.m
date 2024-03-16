@@ -1,7 +1,7 @@
 function B = Bernstein(x, t, j, k, alpha, leftflag)
 % B = Bernstein(x, t, j, k)
 % B = Bernstein(x, t, j, k, alpha)
-% Compute Bernstein polynomial basis using de Casteljau's algorithm
+% Compute Bernstein polynomial basis using de De Boor's algorithm
 %
 % INPUTS:
 %   x: vectors/array, point coordinates at which the function is to be
@@ -29,7 +29,9 @@ function B = Bernstein(x, t, j, k, alpha, leftflag)
 % Author: Bruno Luong
 %   31-May-2010: correct bug for LEFT Bspline is called with scalar
 %   10-Jun-2010: Change in Bernstein.m to avoid NaN for end knots
-% 
+%   13-Mar-2024: Cleaner code in recursion loop
+%   14-Mar-2023: De Boor algorithm, recusrsion on unnormalized B-spline
+%       basis function
 
 %%
 coefin = nargin>=5 && ~isempty(alpha);
@@ -48,7 +50,8 @@ if isvector(x) %&& ~coefin
 else
     szx = size(x);
 end
-x = x(:);
+% sort x so that it fall into subinterval by contiguous segment
+[x, isx] = sort(reshape(x, [], 1));
 m = size(x,1);
 
 %%
@@ -81,14 +84,16 @@ if jmin<1 || jmax>maxj
     error('BERNSTEIN: j must be within [%d,%d]', 1, maxj);
 end
 
-%% k=1: step functions (piecwise constant)
-B = zeros(m,jmax+k-jmin, cls);
+%% unnormalized B-Spline basis
+% k=1: step functions (piecwise constant)
+n = jmax+k-jmin;
+M = zeros([m, n], cls);
 
 if nargin>=6 && leftflag
     % Left B-spline
     tt = t(jmax+k:-1:jmin);
     if issorted(-tt)
-        [trash col] = histc(-x,-tt);
+        [~, col] = histc(-x,-tt); %#ok
         col = length(tt)-col; % Correct BUG, 31/05/2010
     else
         B = [];
@@ -98,40 +103,68 @@ else
     % Default, right B-spline
     tt = t(jmin:jmax+k);
     if issorted(tt)
-        [trash col] = histc(x,tt); %#ok
+        [~, col] = histc(x,tt); %#ok
     else
         B = [];
         return
     end
 end
 
-row = find(col>=1 & col<=size(B,2));
-col = col(row);
-B(row+(col-1)*m) = 1;
+inside = col>=1 & col<=size(M,2);
+i = col; % interval index, sams size as x
+row = find(inside);
+col = i(inside); % also i(row)
 
+if k >= 2 && m % i must not be empty, required by GetBreaksArray
 
-%%
-for kk=2:k
-    jvec = jmin:jmax+k-kk;
-    dtvec = t(jvec+kk-1)-t(jvec);
-    % recursion
-    for c=1:length(jvec);
-        jj = jvec(c);
-        dt = dtvec(c);
-        if dt~=0
-            w1 = (x-t(jj)) / dt;
-        else
-            w1 = zeros(size(x),cls);
+    % Construct the array of break indices of sorted x array
+    breaks = GetBreaksArray(i, jmax+k);
+
+    %  eqt (5), Carl de Boor "On Calculating with B-spline" 1972 paper
+    dt = t(col+1)-t(col);
+    idt = 1 ./ dt;
+    idt(dt == 0) = 0;
+    M(row+(col-1)*m) = idt;
+
+    %% Loop on order
+    for kk=2:k
+        % sub-interval to be processed
+        jv = jmin:jmax+k-kk;
+        % support lengths
+        dtv = t(jv+kk)-t(jv);
+        % Cox–de Boor recursion formula
+        % recursion loop on sub-intervals
+        for c=1:size(jv,2)
+            dt = dtv(c);
+            if dt~=0
+                jj = jv(c);
+                % which points x fall inside the support
+                r = breaks(jj):breaks(jj+kk)-1;
+                w = (x(r)-t(jj)) / dt;
+                % eqt (8), Carl de Boor "On Calculating with B-spline" 1972 paper
+                M(r,c) = w.*M(r,c) + (1-w).*M(r,c+1);
+            end
         end
-        dt = (t(jj+kk)-t(jj+1));
-        if dt~=0
-            w2 = (t(jj+kk)-x) / dt;
-        else
-            w2 = zeros(size(x),cls);
-        end
-        ij = jj-jmin+1;
-        B(:,ij) = w1.*B(:,ij) + w2.*B(:,ij+1);
     end
+
+    % Normalized B-Spline basis, 
+    % B here is noted by N in Carl de Boor "On Calculating with B-spline" 1972 paper
+    % definition (4)
+    B = zeros(size(M),cls);
+    jv = jmin:jmax;
+    dtv = t(jv+k)-t(jv);
+    for c=1:size(jv,2)
+        dt = dtv(c);
+        if dt~=0
+            jj = jv(c);
+            % which points x fall inside the support
+            r = breaks(jj):breaks(jj+k)-1;
+            B(r,c) = M(r,c)*dt;
+        end
+    end
+else
+    B = zeros(size(M), cls);
+    B(row+(col-1)*m) = 1;
 end
 
 if length(j) ~= size(B,2)
@@ -139,6 +172,11 @@ if length(j) ~= size(B,2)
     %[tf loc] = ismemberc(j, jmin:jmax); %#ok
     loc = ismembc2(j, jmin:jmax);
     B = B(:,loc);
+end
+
+%% Restore the order of original x
+if ~isequal(isx, (1:size(B,1)).')
+    B = B(isx,:,:);
 end
 
 %%
@@ -152,11 +190,3 @@ else
 end
 
 end % Bernstein
-
-% Make the matrix product
-function Balpha = multMat(B, alpha)
-% Balpha = B*alpha; without returning NaN
-col = any(B,1);
-Balpha = B(:,col)*alpha(col,:);
-% Balpha = B*alpha;
-end
