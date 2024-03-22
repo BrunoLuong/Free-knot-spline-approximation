@@ -1616,7 +1616,7 @@ if nargin<=4
         row(idx) = r;
         col(idx) = c;
         val(idx) = dp;
-        dn = normest(Dp);
+        dn = mynormest(Dp);
         if BSFK_DISPLAY && (dn<singtol)
             warning('BSFK:SingularCon', ...
                     'pointwise-constrained matrix close to singular');
@@ -1771,7 +1771,7 @@ if nargin<=3
         row(idx) = r;
         col(idx) = c;
         val(idx) = dp;
-        dn = normest(Dp);
+        dn = mynormest(Dp);
         if BSFK_DISPLAY && dn<singtol
             warning('BSFK:SingularCon', ...
                     'shape-constrained matrix close to singular');
@@ -1916,7 +1916,7 @@ if nargin<=2
         col(idx) = c;
         val(idx) = dp;
         
-        dn = normest(Dp);
+        dn = mynormest(Dp);
         if BSFK_DISPLAY && dn<singtol
             warning('BSFK:SingularCon', ...
                     'periodic-constrained matrix close to singular');
@@ -2835,7 +2835,7 @@ if size(H,1)>1
         end
     end
     
-    largestev = normest(H);
+    largestev = mynormest(H);
     abstol = 1e-6*largestev; % was eps(largestev), that is stil too unstable for quadprog
     if smallestev <= abstol
         % Add a small l2 regularization (small diagonal matrix) to make
