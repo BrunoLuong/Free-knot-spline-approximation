@@ -13,7 +13,8 @@ function [B, dB, dalpha] = BernKnotDeriv(x, knots, j, k, dknots, alpha, lambda, 
 %   knots: vector, knots points, must be ascending sorted
 %   j: vector, vector of spatial index, must be in [1:length(knots)-k]
 %         if it's empty all the basis functions are computed.
-%   k-1: "order" of the spline (k is scalar)
+%   k: scalar >= 1, "order" of the spline
+%      k-1 is the degree of the polynomials on subintervals
 %      k==1 -> piecewise constant
 %      k==2 -> linear
 %      k==4 -> cubic
@@ -46,7 +47,7 @@ function [B, dB, dalpha] = BernKnotDeriv(x, knots, j, k, dknots, alpha, lambda, 
 %
 % Author: Bruno Luong
 %   31-May-2010: correct bug for LEFT Bspline is called with scalar
-%   16-Mar-2023: De Boor algorithm, recusrsion on unnormalized B-spline
+%   16-Mar-2024: De Boor algorithm, recusrsion on unnormalized B-spline
 %       basis function
 
 % Check if the coefficients are provided by user
@@ -79,7 +80,7 @@ if isempty(j) || coefin
     j = 1:maxj;
     js = j;
 else
-    js  = sort(j(:));
+    js = min(j):max(j);
 end
 
 % Reshape in column vector
@@ -120,10 +121,9 @@ M = zeros([m, n], cls);
 
 if nargin>=8 && leftflag
     % Left B-spline
-    tt = knots(jmax+k:-1:jmin);
-    if issorted(-tt)
-        [~, col] = histc(-x,-tt); %#ok
-        col = length(tt)-col; % Correct BUG, 31/05/2010
+    tt = -knots(jmax+k:-1:jmin);
+    if issorted(tt)
+        col = length(tt)-myhistc(-x, tt);
     else
         B = [];
         dB = [];
@@ -133,7 +133,7 @@ else
     % Default, right B-spline
     tt = knots(jmin:jmax+k);
     if issorted(tt)
-        [~, col] = histc(x,tt); %#ok
+        col = myhistc(x, tt);
     else
         B = [];
         dB = [];
@@ -141,18 +141,20 @@ else
     end
 end
 
-inside = col>=1 & col<=size(M,2);
-i = col; % interval index, same size as x
+% Construct the array of break indices of sorted x array
+breaks = GetBreaksArray(col, length(tt));
+GetSegment = @(j,l)breaks(j-jmin+1):breaks(j-jmin+1+l)-1; % j is sub-interval relative to full knot knots
+
+inside = col>=1 & col<=n;
 row = find(inside);
-col = i(inside); % also i(row)
+col = col(inside); % also i(row)
 
-if k >= 2 && m % i must not be empty, required by GetBreaksArray
-
-    % Construct the array of break indices of sorted x array
-    breaks = GetBreaksArray(i, jmax+k);
+if k >= 2
 
     %  eqt (5), Carl de Boor "On Calculating with B-spline" 1972 paper
-    dt = knots(col+1)-knots(col);
+    c1 = jmin+col;
+    c0 = c1-1;
+    dt = knots(c1)-knots(c0);
     idt = 1 ./ dt;
     idt(dt == 0) = 0;
     M(row+(col-1)*m) = idt;
@@ -163,26 +165,26 @@ if k >= 2 && m % i must not be empty, required by GetBreaksArray
         % - third -> knot derivative, p
     %dM = zeros([size(M) p],cls);
     % Derivative k==0
-    ddt = dknots(1,col+1,:)-dknots(1,col,:);   % (1 x m x p)
-    ddt = reshape(ddt, [m,1,p]);               % (m x 1 x p)
+    ddt = dknots(1,c1,:)-dknots(1,c0,:);    % (1 x m x p)
+    ddt = reshape(ddt, [m,1,p]);            % (m x 1 x p)
     ddt(dt == 0,:,:) = 0;
     dM = zeros([size(M)],cls);
-    dM(row+(col-1)*m) = idt.*idt;               % (m x n) 
-    dM = -ddt.*dM;                              % (m x n x p)
+    dM(row+(col-1)*m) = idt.*idt;           % (m x n) 
+    dM = -ddt.*dM;                          % (m x n x p)
 
-    %%
+    %% Loop on order
     for kk=2:k
         % sub-interval to be processed
-        jv = jmin:jmax+k-kk;
+        jv = jmin:jmax+k-kk; % relative to full knot knots
         % support lengths
         dtv = knots(jv+kk)-knots(jv);
         % recursion loop on sub-intervals
         for c=1:size(jv,2)
             dt = dtv(c);
-            if dt~=0
+            if dt %~=0
                 jj = jv(c);
                 % which points x fall inside the support
-                r = breaks(jj):breaks(jj+kk)-1; % length mr
+                r = GetSegment(jj,kk); % length mr
                 dkleft = dknots(1,jj,:);
                 dkright = dknots(1,jj+kk,:);
                 ddt = dkright-dkleft;           % ( 1 x 1 x p)
@@ -200,35 +202,32 @@ if k >= 2 && m % i must not be empty, required by GetBreaksArray
     % Normalized B-Spline basis,
     % B here is noted by N in Carl de Boor "On Calculating with B-spline" 1972 paper
     % definition (4)
-    % Loop on sub-intervals
-    B = zeros(size(M), cls);
-    dB = zeros(size(dM), cls);
-    jv = jmin:jmax;
-    dtv = knots(jv+k)-knots(jv);
-    for c=1:size(jv,2)
+    n = length(j);
+    B = zeros([m n],cls);
+    dB = zeros([m n p],cls);
+    dtv = knots(j+k)-knots(j);
+    for c=1:n
         dt = dtv(c);
-        if dt~=0
-            jj = jv(c);
+        if dt %~=0
+            jj = j(c);
+            cM = jj-jmin+1;
             % which points x fall inside the support
-            r = breaks(jj):breaks(jj+k)-1;
-            B(r,c) = M(r,c)*dt;
+            r = GetSegment(jj,k);
+            B(r,c) = M(r,cM)*dt;
             ddt = dknots(1,jj+k,:)-dknots(1,jj,:);   % (1 x 1 x p)
-            dB(r,c,:) = dM(r,c,:)*dt + M(r,c).*ddt;
+            dB(r,c,:) = dM(r,cM,:)*dt + M(r,cM).*ddt;
         end
     end
-else
-    B = zeros(size(M), cls);
-    B(row+(col-1)*m) = 1;
-    dB = zeros([size(B) p], cls);
-end
-
-%%
-% Map to original vector j
-%[tf loc] = ismemberc(j, jmin:jmax); %#ok
-if length(j) ~= size(B,2)
-    loc = ismembc2(j, jmin:jmax);
-    B = B(:,loc);
-    dB = dB(:,loc,:);
+else % k == 1
+    n = length(j);
+    B = zeros([m n],cls);
+    dB = zeros([m n p],cls);
+    for c=1:n
+        jj = j(c);
+        % which points x fall inside the support
+        r = GetSegment(jj,k);
+        B(r,c) = 1;
+    end
 end
 
 %% Restore the order of original x
