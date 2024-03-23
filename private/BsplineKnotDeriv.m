@@ -90,7 +90,7 @@ else % dual variable lambda is provided
             
             % ap: coefficients of the rth derivative
             % dap: knot-derivative of those coefficients
-            [Dr td kd dDr] = DerivBKnotDeriv(knots, k, r, dknots); %#ok
+            [Dr, ~, ~, dDr] = DerivBKnotDeriv(knots, k, r, dknots);
             
             % The derivarive of B*Dr            
             [m, n, p] = size(dB);
