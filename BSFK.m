@@ -292,13 +292,15 @@ end
 
 % Open graphic figure and basic plot axes
 if graphic
-    fig = figure(Fig{:});
-    %Fig = {fig}; % plot on fig from now on
-    clf(fig);
-    if bitand(graphic,2^2) || bitand(graphic,2^1)
-        ax2 = subplot(2,2,[3 4],'Parent',fig); % bottom
-    else
-        ax2 = axes('Parent',fig);
+    try %#ok
+        fig = figure(Fig{:});
+        %Fig = {fig}; % plot on fig from now on
+        clf(fig);
+        if bitand(graphic,2^2) || bitand(graphic,2^1)
+            ax2 = subplot(2,2,[3 4],'Parent',fig); % bottom
+        else
+            ax2 = axes('Parent',fig);
+        end
     end
 end
 
@@ -416,35 +418,38 @@ while true
     
     % Open figure and plot basic stuffs
     if graphic
-       
-        cla(ax2);
-        yfit = fit(x, y, t, k, smoothing);
-        plot(ax2, unnormfun(x), y, '.g');
-        hold(ax2,'on');
-        graph_hyfit = plot(ax2, unnormfun(x), yfit, 'r');
-        yl = ylim(ax2);
-        plot(ax2, unnormfun(t(1)*[1 1]), yl, 'b-.');
-        plot(ax2, unnormfun(t(end)*[1 1]), yl, 'b-.');
-        graph_htp = zeros(size(p));
-        for j=reshape(p,1,[])
-            graph_htp(j) = plot(ax2, unnormfun(t(j)*[1 1]), yl, 'b-.');
+
+        try %#ok
+
+            cla(ax2);
+            yfit = fit(x, y, t, k, smoothing);
+            plot(ax2, unnormfun(x), y, '.g');
+            hold(ax2,'on');
+            graph_hyfit = plot(ax2, unnormfun(x), yfit, 'r');
+            yl = ylim(ax2);
+            plot(ax2, unnormfun(t(1)*[1 1]), yl, 'b-.');
+            plot(ax2, unnormfun(t(end)*[1 1]), yl, 'b-.');
+            graph_htp = zeros(size(p));
+            for j=reshape(p,1,[])
+                graph_htp(j) = plot(ax2, unnormfun(t(j)*[1 1]), yl, 'b-.');
+            end
+
+            if nouteriter==1
+                %fixed knots
+                pc = setdiff(k:length(t)-k+1,p);
+                fknt = t(pc);
+            end
+            for j=1:length(fknt)
+                plot(ax2, unnormfun(fknt(j)*[1 1]), yl, 'c-');
+            end
+            vcon = find([pntcon.p]==0);
+            for j=1:length(vcon)
+                s = pntcon(vcon(j));
+                plot(ax2, unnormfun(s.x), s.v, 'bo');
+            end
+
+            drawnow;
         end
-        
-        if nouteriter==1
-            %fixed knots
-            pc = setdiff(k:length(t)-k+1,p);
-            fknt = t(pc);
-        end
-        for j=1:length(fknt)
-            plot(ax2, unnormfun(fknt(j)*[1 1]), yl, 'c-');
-        end
-        vcon = find([pntcon.p]==0);
-        for j=1:length(vcon)
-            s = pntcon(vcon(j));
-            plot(ax2, unnormfun(s.x), s.v, 'bo');
-        end
-        
-        drawnow;
         
     end
     
@@ -469,8 +474,8 @@ while true
             fprintf('.'); % dots "..."
         end
         
-        [r J trash OK] = BuildJacobian(x, t, k, GPflag, smoothing, ...
-                                       shape, pntcon, periodic); %#ok
+        [r, J, ~, OK] = BuildJacobian(x, t, k, GPflag, smoothing, ...
+                                       shape, pntcon, periodic);
         if ~OK % coalesing knots!!! can't pursue
             t = told;
             ier = -1;
@@ -525,49 +530,51 @@ while true
         end
         
         if graphic
-            
-            yfit = fit(x, y, t, k, smoothing);
-            set(graph_hyfit, 'YData', yfit);
-            for j=reshape(p,1,[])
-                set(graph_htp(j), 'XData', unnormfun(t(j)*[1 1]));
-            end
-            
-            drawnow;
-            
-            if bitand(graphic,2^2)
-                gamma = linspace(0,1,51);
-                farr = zeros(size(gamma));
-                garr = zeros(size(gamma));
-                for npnt=1:length(gamma)
-                    [farr(npnt), garr(npnt)] = simul(0, gamma(npnt), x, told, ...
-                        p, s, k, smoothing, shape, pntcon, periodic);
+            try %#ok
+
+                yfit = fit(x, y, t, k, smoothing);
+                set(graph_hyfit, 'YData', yfit);
+                for j=reshape(p,1,[])
+                    set(graph_htp(j), 'XData', unnormfun(t(j)*[1 1]));
                 end
-                
-                try, delete(ax1); end %#ok
-                if ~bitand(graphic,2^1)
-                    ax1 = subplot(2,2,[1 2],'Parent',fig);
-                else
-                    ax1 = subplot(2,2,1,'Parent',fig);
-                end
-                [ax1 h1 h2] = plotyy(ax1, gamma, farr, gamma, garr); %#ok
-                ylabel(ax1(1), 'f(\gamma)');
-                ylabel(ax1(2), '\nablaf(\gamma)');
-                
-                hold(ax1(1),'on');
-                plot(ax1(1),gammaopt*[1 1], ylim(ax1(1)), 'r-.');
-                grid(ax1(2),'on');
-                if stepbystep
-                    reply = input('''CR'' step-by-step; ''c'' continue: ', 's');
-                    if ~isempty(reply) 
-                        switch lower(reply)
-                            case 'c'
-                                stepbystep = false;
-                            case 's'
-                                save('BSFKdebug.mat', '-mat');
+
+                drawnow;
+
+                if bitand(graphic,2^2)
+                    gamma = linspace(0,1,51);
+                    farr = zeros(size(gamma));
+                    garr = zeros(size(gamma));
+                    for npnt=1:length(gamma)
+                        [farr(npnt), garr(npnt)] = simul(0, gamma(npnt), x, told, ...
+                            p, s, k, smoothing, shape, pntcon, periodic);
+                    end
+
+                    try, delete(ax1); end %#ok
+                    if ~bitand(graphic,2^1)
+                        ax1 = subplot(2,2,[1 2],'Parent',fig);
+                    else
+                        ax1 = subplot(2,2,1,'Parent',fig);
+                    end
+                    [ax1, h1, h2] = plotyy(ax1, gamma, farr, gamma, garr); %#ok
+                    ylabel(ax1(1), 'f(\gamma)');
+                    ylabel(ax1(2), '\nablaf(\gamma)');
+
+                    hold(ax1(1),'on');
+                    plot(ax1(1),gammaopt*[1 1], ylim(ax1(1)), 'r-.');
+                    grid(ax1(2),'on');
+                    if stepbystep
+                        reply = input('''CR'' step-by-step; ''c'' continue: ', 's');
+                        if ~isempty(reply)
+                            switch lower(reply)
+                                case 'c'
+                                    stepbystep = false;
+                                case 's'
+                                    save('BSFKdebug.mat', '-mat');
+                            end
                         end
                     end
                 end
-            end            
+            end % try
         end % graphic animation
         
     end % while-loop Gauss-Newton iteration
@@ -643,27 +650,29 @@ if BSFK_DISPLAY>=1
 end
         
 % The graphic of the final solution
-if graphic    
-    cla(ax2);
-    plot(ax2, unnormfun(x), y, '.g');
-    hold(ax2,'on');
-    plot(ax2, unnormfun(x), yfit, 'r');
-    yl = ylim(ax2);
-    plot(ax2, unnormfun(t(1)*[1 1]), yl, 'b-.');
-    plot(ax2, unnormfun(t(end)*[1 1]), yl, 'b-.');
-    for j=reshape(p,1,[])
-        plot(ax2, unnormfun(t(j)*[1 1]), yl, 'b-.');
+if graphic
+    try %#ok
+        cla(ax2);
+        plot(ax2, unnormfun(x), y, '.g');
+        hold(ax2,'on');
+        plot(ax2, unnormfun(x), yfit, 'r');
+        yl = ylim(ax2);
+        plot(ax2, unnormfun(t(1)*[1 1]), yl, 'b-.');
+        plot(ax2, unnormfun(t(end)*[1 1]), yl, 'b-.');
+        for j=reshape(p,1,[])
+            plot(ax2, unnormfun(t(j)*[1 1]), yl, 'b-.');
+        end
+        for j=1:length(fknt)
+            plot(ax2, unnormfun(fknt(j)*[1 1]), yl, 'c-');
+        end
+        vcon = find([pntcon.p]==0);
+        for j=1:length(vcon)
+            s = pntcon(vcon(j));
+            plot(ax2, unnormfun(s.x), s.v, 'bo');
+        end
+
+        drawnow;
     end
-    for j=1:length(fknt)
-        plot(ax2, unnormfun(fknt(j)*[1 1]), yl, 'c-');
-    end
-    vcon = find([pntcon.p]==0);
-    for j=1:length(vcon)
-        s = pntcon(vcon(j));
-        plot(ax2, unnormfun(s.x), s.v, 'bo');
-    end
-    
-    drawnow;
 end
 
 % Convert the result to MATLAB pp-form
@@ -1028,7 +1037,7 @@ switch lower(qpengine)
         ub = +inf(size(g));
         s0 = zeros(size(g),cls);
         H = RestoreSPMat(H);
-        [alpha trash ier qpout lbd] = quadprog(H, g, A, b, Aeq, beq, lb, ub, s0, qpoptions); %#ok
+        [alpha, ~, ier, ~, lbd] = quadprog(H, g, A, b, Aeq, beq, lb, ub, s0, qpoptions);
         if ier<0 && BSFK_DISPLAY>=1
             switch ier
                 case -2
@@ -1667,8 +1676,8 @@ else % Build the derivative of D with respect to knots
         idx = rowstart+(1:mi);
         uil = ul(idx);
         uiu = uu(idx);
-        [alphad td kd Dr trash Dl] = ...
-            DerivBKnotDeriv(t, k, p, E, alpha, [uil uiu]); %#ok
+        [~, ~, ~, Dr, ~, Dl] = ...
+            DerivBKnotDeriv(t, k, p, E, alpha, [uil uiu]);
         DR(idx,:) = Dr;
         % accumulate the gradient of the constraints
         DL = DL + sum(Dl,2);
@@ -1917,7 +1926,7 @@ if nargin<=2
         val(idx) = dp;
         
         dn = mynormest(Dp);
-        if BSFK_DISPLAY && dn<singtol
+        if BSFK_DISPLAY && dn<singtol && ~isempty(Dp)
             warning('BSFK:SingularCon', ...
                     'periodic-constrained matrix close to singular');
         end
@@ -2283,7 +2292,8 @@ else
 end % if on unconstrained and shape-constrained
 
 % Signal Jacobian sucessully built
-OK = true;
+% March/2024 J contains NaN if knots has collision
+OK = all(isfinite(J),'all');
 
 end % BuildJacobian
 
@@ -2322,8 +2332,8 @@ switch lower(qpengine)
         s0 = zeros(size(g));
         Aeq = []; beq = [];
         lb = []; ub = [];
-        [s trash ier] = quadprog(H, g, -C, -hr, ...
-                                 Aeq, beq, lb, ub, s0, qpoptions); %#ok
+        [s, ~, ier] = quadprog(H, g, -C, -hr, ...
+                               Aeq, beq, lb, ub, s0, qpoptions);
         if ier<0 && BSFK_DISPLAY>=1
             switch ier
                 case -2
@@ -2834,7 +2844,7 @@ if size(H,1)>1
             rethrow(err);
         end
     end
-    
+
     largestev = mynormest(H);
     abstol = 1e-6*largestev; % was eps(largestev), that is stil too unstable for quadprog
     if smallestev <= abstol
