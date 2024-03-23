@@ -10,7 +10,8 @@ function [B, dB, dalpha] = BernKnotDeriv(x, knots, j, k, dknots, alpha, lambda, 
 % INPUTS:
 %   x: vectors/array, point coordinates at which the function is to be
 %      evaluated
-%   knots: vector, knots points, must be ascending sorted
+%   knots: vector of knot positions, must be ascending sorted
+%       usually knots has the first and last elements repeat k times.
 %   j: vector, vector of spatial index, must be in [1:length(knots)-k]
 %         if it's empty all the basis functions are computed.
 %   k: scalar >= 1, "order" of the spline
@@ -18,23 +19,24 @@ function [B, dB, dalpha] = BernKnotDeriv(x, knots, j, k, dknots, alpha, lambda, 
 %      k==1 -> piecewise constant
 %      k==2 -> linear
 %      k==4 -> cubic
-%   dknots: increment of knots, column vector or 
+%   dknots: increment of knots, column vector or (length(knots) x p)
 %       array, each column is the direction where the derivative is computed.
 %       In order to compute the Jacobian user must provide a basis vectors
 %       for DKNOTS
-%   alpha: vectors of size n:=length(knots)-k, optional coefficients of the
-%          spline basis
+%   alpha: vectors of length n := length(t)-k, optional coefficients of the
+%       basis or matrix of the size (n x ndim). It can be seen as n spline
+%       control points in a space of R^ndim
 %   lambda: dual variable, same number of elements as x
 %
 % OUTPUTS:
 %   B: (m x n) where m is length(x), n is length(j)              
 %       Each column of B is the basis function B_j,k
-%   dB: the derivative of B with respect to the direction given by
-%       dknots
-%   s: spline function, same dimension as x
+%   dB: (m x n x p) the derivative of B with respect to the direction given
+%       by dknots
+%   s: spline function, same dimension as x or [size(x) ndim]
 %   ds: the derivative of s with respcte to knots
 %   dalpha: left product the derivative dB (of B) with the dual lambda,
-%           dimension (n x p)
+%           dimension (m x p x ndim)
 %
 %   If knots is not monotonically non-decreasing, output will be an empty arrays
 %
@@ -98,15 +100,16 @@ jmin = js(1);
 jmax = js(end);
 % Check
 if jmin<1 || jmax>maxj
-    error('BERNSTEIN: j must be within [%d,%d]', 1, maxj);
+    error('BERNKNOTDERIV: j must be within [%d,%d]', 1, maxj);
 end
 
 %%
-% Spcial case, we ignore the Dirac distribution
+% Special case, we ignore the Dirac distribution
 if k<=0    
-    if coefin     
-        B = zeros([szx size(alpha,2)],cls);
-        dB = zeros([szx size(alpha,2) p],cls);
+    if coefin
+        ndim = size(alpha,2);
+        B = zeros([szx ndim],cls);
+        dB = zeros([szx ndim p],cls);
     else
         B = zeros([szx numel(j)],cls);
         dB = zeros([szx numel(j) p],cls);
@@ -143,13 +146,13 @@ end
 
 % Construct the array of break indices of sorted x array
 breaks = GetBreaksArray(col, length(tt));
-GetSegment = @(j,l)breaks(j-jmin+1):breaks(j-jmin+1+l)-1; % j is sub-interval relative to full knot knots
-
-inside = col>=1 & col<=n;
-row = find(inside);
-col = col(inside); % also i(row)
+GetSegment = @(j,l)GetSegmentHelper(j,l,breaks,jmin);
 
 if k >= 2
+
+    inside = col>=1 & col<=n;
+    row = find(inside);
+    col = col(inside); % also col(row)
 
     %  eqt (5), Carl de Boor "On Calculating with B-spline" 1972 paper
     c1 = jmin+col;
@@ -243,12 +246,15 @@ dB = reshape(dB, [szx n p]);
 
 % Multiply with coefficients to get the spline function
 if coefin
-    alpha = alpha(:);
-    
+    if isvector(alpha) && size(alpha,1)==1 %#ok
+        alpha = alpha.';
+    end
+    % size(alpha,1) should be n
+    ndim = size(alpha,2);
     B = reshape(B,[],n);
     % Compute function from the coefficients
     B = multMat(B, alpha); % Bug fix 10-Jun-2010
-    B = reshape(B, [szx size(alpha,2)]);
+    B = reshape(B, [szx ndim]);
 
     if nargin>=7 % && nargout>=3 % lambda is provided
         % left product with the dual
@@ -261,9 +267,9 @@ if coefin
     d = length(szx)+1;
     ip = 1:max(ndims(dB),d);
     ip([d end]) = ip([end d]);
-    dB = reshape(permute(dB, ip), [], length(alpha));
-    dB = multMat(dB, alpha);
-    dB = reshape(dB, [szx p]);    
+    dB = reshape(permute(dB, ip), [], n);
+    dB = multMat(dB, alpha);     % (szx*p x ndim)
+    dB = reshape(dB, [szx p ndim]);    
 
 end
 
