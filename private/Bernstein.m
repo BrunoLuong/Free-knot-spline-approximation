@@ -6,7 +6,8 @@ function B = Bernstein(x, t, j, k, alpha, leftflag)
 % INPUTS:
 %   x: vectors/array, point coordinates at which the function is to be
 %      evaluated
-%   t: vector, knots points, must be ascending sorted
+%   t: vector, knots positions, must be ascending sorted
+%       usually t has the first and last elements repeat k times.
 %   j: vector, vector of spatial index, must be in [1:length(t)-k]
 %      if it's empty all the basis functions are computed.
 %   k: scalar >= 1, "order" of the spline
@@ -14,7 +15,9 @@ function B = Bernstein(x, t, j, k, alpha, leftflag)
 %      k==1 -> piecewise constant
 %      k==2 -> linear
 %      k==4 -> cubic
-%   alpha: vectors of size length(t)-k, optional coefficients of the basis
+%   alpha: vectors of length n := length(t)-k, optional coefficients of the
+%       basis or matrix of the size (n x ndim). It can be seen as n spline
+%       control points in a space of R^ndim
 % OUTPUTS:
 %   B: (m x n) where m is length(x), n is length(j)              
 %       Each column of B is the basis function B_j,k
@@ -112,13 +115,13 @@ end
 
 % Construct the array of break indices of sorted x array
 breaks = GetBreaksArray(col, length(tt));
-GetSegment = @(j,l)breaks(j-jmin+1):breaks(j-jmin+1+l)-1; % j is sub-interval relative to full knot t
-
-inside = col>=1 & col<=n;
-row = find(inside);
-col = col(inside); % also i(row)
+GetSegment = @(j,l)GetSegmentHelper(j,l,breaks,jmin);
 
 if k >= 2
+
+    inside = col>=1 & col<=n;
+    row = find(inside);
+    col = col(inside); % also col(row)
 
     %  eqt (5), Carl de Boor "On Calculating with B-spline" 1972 paper
     c1 = jmin+col;
@@ -184,7 +187,7 @@ end
 %%
 if coefin
     % Compute function from the coefficients
-    B = multMat(B, alpha); % Bug fix 10-Jun-2010
+    B = multMat(B, alpha); % Bug fix 10-Jun-2010 no longer applied?
     B = reshape(B, [szx size(alpha,2)]);
 else
     % Basis
