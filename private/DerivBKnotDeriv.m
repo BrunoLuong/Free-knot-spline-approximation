@@ -1,21 +1,24 @@
 function varargout = DerivBKnotDeriv(knots, k, r, dknots, alpha, lambda)
-% [Dr td kd dDr subs] = DerivBKnotDeriv(knots, k, r, dknots)
-% [alphad td kd dalphad subs] = DerivBKnotDeriv(knots, k, r, dknots, alpha)
-% [alphad td kd dalphad subs dlambda] = ...
+% [Dr, td, kd, dDr, subs] = DerivBKnotDeriv(knots, k, r, dknots)
+% [alphad, td, kd, dalphad, subs] = DerivBKnotDeriv(knots, k, r, dknots, alpha)
+% [alphad, td, kd, dalphad, subs, dlambda] = ...
 %             DerivBKnotDeriv(knots, k, r, dknots, alpha, lambda)
 % Take the r^th derivative of a spline function (with respect to the
 % abscissa coordinates x) of braket t_{j} and order k
 %
 % INPUTS:
-%   knots: vector, knots points, must be ascending sorted
-%   k-1: "order" of the spline (k is scalar)
+%   knots: vector of knot positions, must be ascending sorted
+%       usually knots has the first and last elements repeat k times.
+%   j: vector, vector of spatial index, must be in [1:length(knots)-k]
+%         if it's empty all the basis functions are computed.
+%   k: "order" of the spline (k is scalar)
 %   r: order of the derivative
 %   dknots: directions of the knot derivative, ranged in p columns
 %   alpha: vector of length n := length(knots)-k, optional coefficients of
 %         the spline basis
 %   lambda: (optional) dual variable vector of size n-r
 % OUTPUTS:
-%   Dr: sparse matrix (n-r) x n, derivative matrix that maps coefficients
+%   Dr: sparse matrix (n-r) x n, derivative matrix that maps
 %       the original coefficients to the derivative coefficients
 %       Note that Dr class will be double regardless the type of the knots
 %   td: subsknots that can be used later to evaluate the derivative
@@ -66,6 +69,9 @@ if p==0
     for nu=1:r
         ij = nu+1:n;
         dt = knots(ij+(k-nu))-knots(ij);
+        if any(dt==0)
+            warning('DerivBKnotDeriv: division by dt=0')
+        end
         h = (k-nu)./dt;
         d = n-nu;
         HL = spdiags(h(:)*[-1 1],[0 1],d,d+1);
@@ -90,6 +96,9 @@ else
             
             ij = nu+1:n;
             dk = (knots(ij+(k-nu))-knots(ij)); % vector
+            if any(dk==0)
+                warning('DerivBKnotDeriv: division by dk=0')
+            end
             ddk = (dknots(v,ij+(k-nu))-dknots(v,ij)); % vector
             h = (k-nu)./dk; % vector
             dh = -h.*ddk./dk; % vector
@@ -154,4 +163,3 @@ else
     end
     varargout = {Dr td kd DDR subs};
 end
-
